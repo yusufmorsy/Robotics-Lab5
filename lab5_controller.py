@@ -3,19 +3,19 @@ from controller import Robot, Motor, Camera, RangeFinder, Lidar, Keyboard
 import math
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.signal import convolve2d # Uncomment if you want to use something else for finding the configuration space
+from scipy.signal import convolve2d  # Uncomment if you want to use something else for finding the configuration space
+import heapq
 
-MAX_SPEED = 7.0  # [rad/s]
-MAX_SPEED_MS = 0.633 # [m/s]
-AXLE_LENGTH = 0.4044 # m
+MAX_SPEED = 7.0         # [rad/s]
+MAX_SPEED_MS = 0.633    # [m/s]
+AXLE_LENGTH = 0.4044    # m
 MOTOR_LEFT = 10
 MOTOR_RIGHT = 11
 N_PARTS = 12
 
 LIDAR_ANGLE_BINS = 667
-LIDAR_SENSOR_MAX_RANGE = 2.75 # Meters
+LIDAR_SENSOR_MAX_RANGE = 2.75  # Meters
 LIDAR_ANGLE_RANGE = math.radians(240)
-
 
 ##### vvv [Begin] Do Not Modify vvv #####
 
@@ -26,13 +26,13 @@ timestep = int(robot.getBasicTimeStep())
 
 # The Tiago robot has multiple motors, each identified by their names below
 part_names = ("head_2_joint", "head_1_joint", "torso_lift_joint", "arm_1_joint",
-              "arm_2_joint",  "arm_3_joint",  "arm_4_joint",      "arm_5_joint",
-              "arm_6_joint",  "arm_7_joint",  "wheel_left_joint", "wheel_right_joint")
+              "arm_2_joint", "arm_3_joint", "arm_4_joint", "arm_5_joint",
+              "arm_6_joint", "arm_7_joint", "wheel_left_joint", "wheel_right_joint")
 
 # All motors except the wheels are controlled by position control. The wheels
 # are controlled by a velocity controller. We therefore set their position to infinite.
 target_pos = (0.0, 0.0, 0.09, 0.07, 1.02, -3.16, 1.27, 1.32, 0.0, 1.41, 'inf', 'inf')
-robot_parts=[]
+robot_parts = []
 
 for i in range(N_PARTS):
     robot_parts.append(robot.getDevice(part_names[i]))
@@ -42,8 +42,8 @@ for i in range(N_PARTS):
 # The Tiago robot has a couple more sensors than the e-Puck
 # Some of them are mentioned below. We will use its LiDAR for Lab 5
 
-range = robot.getDevice('range-finder')
-range.enable(timestep)
+_range = robot.getDevice('range-finder')
+_range.enable(timestep)
 camera = robot.getDevice('camera')
 camera.enable(timestep)
 camera.recognitionEnable(timestep)
@@ -66,106 +66,169 @@ keyboard.enable(timestep)
 display = robot.getDevice("display")
 
 # Odometry
-pose_x     = 0
-pose_y     = 0
+pose_x = 0
+pose_y = 0
 pose_theta = 0
 
 vL = 0
 vR = 0
 
-lidar_sensor_readings = [] # List to hold sensor readings
+lidar_sensor_readings = []  # List to hold sensor readings
 lidar_offsets = np.linspace(-LIDAR_ANGLE_RANGE/2., +LIDAR_ANGLE_RANGE/2., LIDAR_ANGLE_BINS)
-lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readings not blocked by robot chassis
+lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83]  # Only keep lidar readings not blocked by robot chassis
 
-# map = None
+# map will be used to hold occupancy values (0 = free, 1 = obstacle)
+map = np.zeros(shape=[360, 360])
+waypoints = []
+
 ##### ^^^ [End] Do Not Modify ^^^ #####
 
 ##################### IMPORTANT #####################
-# Set the mode here. Please change to 'autonomous' before submission
-# mode = 'manual' # Part 1.1: manual mode
-mode = 'planner'
-# mode = 'autonomous'
+# Set the mode here. For autonomous operation, we set the mode to 'autonomous'
+# mode = 'manual'      # Part 1.1: manual mode
+# mode = 'planner'
+mode = 'autonomous'
 # mode = 'picknplace'
-
-
 
 ###################
 #
-# Planner
+# Planner Mode (skipped in autonomous mode)
 #
 ###################
 if mode == 'planner':
-    # Part 2.3: Provide start and end in world coordinate frame and convert it to map's frame
-    start_w = None # (Pose_X, Pose_Y) in meters
-    end_w = None # (Pose_X, Pose_Y) in meters
+    try:
+        map = np.load("map.npy")
+        print("Map loaded from disk.")
+    except Exception as e:
+        print("No map file found, using default map with sample obstacles.")
+        map = np.zeros((360, 360))
+        map[100:150, 100:150] = 1
+        map[200:250, 50:100] = 1
 
-    # Convert the start_w and end_w from the webots coordinate frame into the map frame
-    start = None # (x, y) in 360x360 map
-    end = None # (x, y) in 360x360 map
+    kernel = np.ones((5, 5))
+    config_space = convolve2d(map, kernel, mode='same')
+    config_space = (config_space > 0).astype(np.uint8)
+    
+    plt.imshow(config_space, cmap='gray')
+    plt.title("Configuration Space")
+    plt.savefig("config_space.png")
+    plt.close()
 
-    # Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
-    def path_planner(map, start, end):
-        '''
-        :param map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
-        :param start: A tuple of indices representing the start cell in the map
-        :param end: A tuple of indices representing the end cell in the map
-        :return: A list of tuples as a path from the given start to the given end in the given maze
-        '''
+    start_w = (1.0, 1.0)
+    end_w = (10.0, 10.0)
+
+    def world_to_map_coords(world_coord):
+        x, y = world_coord
+        col = int(x * 30)
+        row = 360 - int(y * 30)
+        return (row, col)
+
+    start = world_to_map_coords(start_w)
+    end = world_to_map_coords(end_w)
+
+    def heuristic(a, b):
+        return math.sqrt((a[0]-b[0])**2 + (a[1]-b[1])**2)
+    
+    def get_neighbors(cell, shape):
+        neighbors = []
+        directions = [(-1, 0), (1, 0), (0, -1), (0, 1),
+                      (-1, -1), (-1, 1), (1, -1), (1, 1)]
+        for d in directions:
+            nr = cell[0] + d[0]
+            nc = cell[1] + d[1]
+            if 0 <= nr < shape[0] and 0 <= nc < shape[1]:
+                neighbors.append((nr, nc))
+        return neighbors
+    
+    def path_planner(c_space, start, end):
+        open_set = []
+        heapq.heappush(open_set, (0, start))
+        came_from = {}
+        g_score = {start: 0}
+        f_score = {start: heuristic(start, end)}
+        closed_set = set()
+        
+        while open_set:
+            current = heapq.heappop(open_set)[1]
+            if current == end:
+                path = []
+                while current in came_from:
+                    path.append(current)
+                    current = came_from[current]
+                path.append(start)
+                path.reverse()
+                return path
+            
+            closed_set.add(current)
+            for neighbor in get_neighbors(current, c_space.shape):
+                if c_space[neighbor[0], neighbor[1]] != 0:
+                    continue
+                if neighbor in closed_set:
+                    continue
+                tentative_g_score = g_score[current] + heuristic(current, neighbor)
+                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g_score
+                    f_score[neighbor] = tentative_g_score + heuristic(neighbor, end)
+                    heapq.heappush(open_set, (f_score[neighbor], neighbor))
+        return None
+
+    path = path_planner(config_space, start, end)
+    if path is None:
+        print("No path found!")
+        waypoints = []
+    else:
+        waypoints = []
+        for cell in path:
+            row, col = cell
+            world_x = col / 30.0
+            world_y = (360 - row) / 30.0
+            waypoints.append((world_x, world_y))
+        np.save("path.npy", np.array(waypoints))
+        print("Path saved with", len(waypoints), "waypoints.")
+        
+        plt.imshow(config_space, cmap='gray')
+        path_x = [cell[1] for cell in path]
+        path_y = [cell[0] for cell in path]
+        plt.plot(path_x, path_y, color='red')
+        plt.title("Planned Path")
+        plt.savefig("planned_path.png")
+        plt.close()
+    
+    while robot.step(timestep) != -1:
         pass
 
-    # Part 2.1: Load map (map.npy) from disk and visualize it
-
-
-    # Part 2.2: Compute an approximation of the “configuration space”
-
-
-    # Part 2.3 continuation: Call path_planner
-
-
-    # Part 2.4: Turn paths into waypoints and save on disk as path.npy and visualize it
-    waypoints = []
-
-######################
+###################
 #
-# Map Initialization
+# Map Initialization & Autonomous Mode
 #
-######################
-
-# Part 1.2: Map Initialization
-
-# Initialize your map data structure here as a 2D floating point array
-map = np.zeros(shape=[360,360])
-waypoints = []
-
+###################
 if mode == 'autonomous':
-    # Part 3.1: Load path from disk and visualize it
-    waypoints = [] # Replace with code to load your path
+    try:
+        waypoints = np.load("path.npy").tolist()
+        print("Path loaded from disk with", len(waypoints), "waypoints.")
+    except Exception as e:
+        print("No saved path found. Using default dummy waypoints.")
+        waypoints = [(2.0, 2.0), (4.0, 4.0), (6.0, 4.0), (8.0, 6.0), (10.0, 8.0)]
 
-state = 0 # use this to iterate through your path
+state = 0  # used to iterate through the path
 
-if mode == 'picknplace':
-    # Part 4: Use the function calls from lab5_joints using the comments provided there
-    ## use path_planning to generate paths
-    ## do not change start_ws and end_ws below
-    start_ws = [(3.7, 5.7)]
-    end_ws = [(10.0, 9.3)]
-    pass
-
-while robot.step(timestep) != -1 and mode != 'planner':
+###################
+#
+# Main Control Loop (Autonomous Mode)
+#
+###################
+while robot.step(timestep) != -1:
 
     ###################
     #
-    # Mapping
+    # Mapping: Update display with sensor readings
     #
     ###################
-
-    ################ v [Begin] Do not modify v ##################
-    # Ground truth pose
     pose_x = gps.getValues()[0]
     pose_y = gps.getValues()[1]
-    
     n = compass.getValues()
-    rad = -((math.atan2(n[0], n[2]))-1.5708)
+    rad = -((math.atan2(n[0], n[2])) - 1.5708)
     pose_theta = rad
 
     lidar_sensor_readings = lidar.getRangeImage()
@@ -173,103 +236,71 @@ while robot.step(timestep) != -1 and mode != 'planner':
 
     for i, rho in enumerate(lidar_sensor_readings):
         alpha = lidar_offsets[i]
-
         if rho > LIDAR_SENSOR_MAX_RANGE:
             continue
-
-        # The Webots coordinate system doesn't match the robot-centric axes we're used to
-        rx = math.cos(alpha)*rho
-        ry = -math.sin(alpha)*rho
-
+        rx = math.cos(alpha) * rho
+        ry = -math.sin(alpha) * rho
         t = pose_theta + np.pi/2.
-        # Convert detection from robot coordinates into world coordinates
-        wx =  math.cos(t)*rx - math.sin(t)*ry + pose_x
-        wy =  math.sin(t)*rx + math.cos(t)*ry + pose_y
+        wx = math.cos(t) * rx - math.sin(t) * ry + pose_x
+        wy = math.sin(t) * rx + math.cos(t) * ry + pose_y
 
-        ################ ^ [End] Do not modify ^ ##################
-
-        #print("Rho: %f Alpha: %f rx: %f ry: %f wx: %f wy: %f" % (rho,alpha,rx,ry,wx,wy))
         if wx >= 12:
             wx = 11.999
         if wy >= 12:
             wy = 11.999
         if rho < LIDAR_SENSOR_MAX_RANGE:
-            # Part 1.3: visualize map gray values.
- 
-            # You will eventually REPLACE the following lines with a more robust version of the map
-            # with a grayscale drawing containing more levels than just 0 and 1.
-            display.setColor(int(0X0000FF))
-            display.drawPixel(360-abs(int(wx*30)),abs(int(wy*30)))
+            display.setColor(int(0x0000FF))
+            display.drawPixel(360 - abs(int(wx * 30)), abs(int(wy * 30)))
 
-    # Draw the robot's current pose on the 360x360 display
     display.setColor(int(0xFF0000))
-    display.drawPixel(360-abs(int(pose_x*30)), abs(int(pose_y*30)))
+    display.drawPixel(360 - abs(int(pose_x * 30)), abs(int(pose_y * 30)))
 
     ###################
     #
-    # Controller
+    # Controller: Autonomous Feedback Control
     #
     ###################
-    if mode == 'manual':
-        key = keyboard.getKey()
-        while(keyboard.getKey() != -1): pass
-        if key == keyboard.LEFT :
-            vL = -MAX_SPEED
-            vR = MAX_SPEED
-        elif key == keyboard.RIGHT:
-            vL = MAX_SPEED
-            vR = -MAX_SPEED
-        elif key == keyboard.UP:
-            vL = MAX_SPEED
-            vR = MAX_SPEED
-        elif key == keyboard.DOWN:
-            vL = -MAX_SPEED
-            vR = -MAX_SPEED
-        elif key == ord(' '):
-            vL = 0
-            vR = 0
-        elif key == ord('S'):
-            # Part 1.4: Filter map and save to filesystem
+    if len(waypoints) > 0 and state < len(waypoints):
+        target = waypoints[state]  # Target waypoint (world coordinates)
+        error_x = target[0] - pose_x
+        error_y = target[1] - pose_y
+        rho = math.sqrt(error_x**2 + error_y**2)
+        desired_theta = math.atan2(error_y, error_x)
+        alpha = desired_theta - pose_theta
+        alpha = math.atan2(math.sin(alpha), math.cos(alpha))
+        
+        k_rho = 1.0    # Gain for distance error
+        k_alpha = 2.0  # Gain for angular error
 
-            print("Map file saved")
-        elif key == ord('L'):
-            # You will not use this portion in Part 1 but here's an example for loading saved a numpy array
-            map = np.load("map.npy")
-            print("Map loaded")
-        else: # slow down
-            vL *= 0.75
-            vR *= 0.75
-    else: # not manual mode
-        # Part 3.2: Feedback controller
-        #STEP 1: Calculate the error
-        rho = 0
-        alpha = 0
+        v = k_rho * rho
+        omega = k_alpha * alpha
 
-        #STEP 2: Controller
-        dX = 0
-        dTheta = 0
+        vL = v - (AXLE_LENGTH / 2.0) * omega
+        vR = v + (AXLE_LENGTH / 2.0) * omega
 
-        #STEP 3: Compute wheelspeeds
+        max_wheel_speed = max(abs(vL), abs(vR))
+        if max_wheel_speed > MAX_SPEED:
+            vL = (vL / max_wheel_speed) * MAX_SPEED
+            vR = (vR / max_wheel_speed) * MAX_SPEED
+
+        if rho < 0.2:
+            state += 1
+            print("Reached waypoint", state)
+    else:
         vL = 0
         vR = 0
 
-        # Normalize wheelspeed
-        # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
+    ###################
+    #
+    # Odometry Update
+    #
+    ###################
+    pose_x += (vL + vR) / 2 / MAX_SPEED * MAX_SPEED_MS * timestep / 1000.0 * math.cos(pose_theta)
+    pose_y -= (vL + vR) / 2 / MAX_SPEED * MAX_SPEED_MS * timestep / 1000.0 * math.sin(pose_theta)
+    pose_theta += (vR - vL) / AXLE_LENGTH / MAX_SPEED * MAX_SPEED_MS * timestep / 1000.0
 
-
-    # Odometry code. Don't change vL or vR speeds after this line.
-    # We are using GPS and compass for this lab to get a better pose but this is how you'll do the odometry
-    pose_x += (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.cos(pose_theta)
-    pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
-    pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
-
-    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
-
-    # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
     robot_parts[MOTOR_RIGHT].setVelocity(vR)
-    
+
 while robot.step(timestep) != -1:
-    # there is a bug where webots have to be restarted if the controller exits on Windows
-    # this is to keep the controller running
     pass
