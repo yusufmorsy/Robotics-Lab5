@@ -198,16 +198,19 @@ while robot.step(timestep) != -1 and mode != 'planner':
             # You will eventually REPLACE the following lines with a more robust version of the map
             # with a grayscale drawing containing more levels than just 0 and 1.
 
+            # Set the value of each lidar reading
             xpos = round(360-abs(int(wx*30)))
             ypos = round(abs(int(wy*30)))
+            if xpos >= 360:
+                xpos = 359
+            if ypos >= 360:
+                ypos = 359
             value = map[xpos][ypos]
-            map[xpos][ypos] = value + 5e-3
-            if value > 1: 
+            map[xpos][ypos] = map[xpos][ypos] + 5e-3
+            if map[xpos][ypos] > 1: 
                 map[xpos][ypos] = 1
 
-            value = int(value * 256)
-
-            display.setColor(value)
+            display.setColor(int(map[xpos][ypos] * 255))# + value * 256 + value * 256 * 256)
             display.drawPixel(xpos, ypos)
 
     # Draw the robot's current pose on the 360x360 display
@@ -239,7 +242,9 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vR = 0
         elif key == ord('S'):
             # Part 1.4: Filter map and save to filesystem
-            map = map > 0.5
+            for i in range(360):
+                for j in range(360):
+                    map[i][j] = map[i][j] > 0.5
             np.save("map.npy", map)
             print("Map file saved")
         elif key == ord('L'):
@@ -255,7 +260,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
             display.setColor(int(0xFFFFFF))
             for i in range(360):
                 for j in range(360):
-                    if map[i][j] > 0.5:
+                    if map[i][j] == 1:
                         display.drawPixel(i, j)
             
             #display.drawPixel(360-abs(int(wx*30)),abs(int(wy*30)))
