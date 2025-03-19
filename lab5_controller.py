@@ -150,7 +150,7 @@ if mode == 'planner':
 
     # Part 2.2: Compute an approximation of the “configuration space”
     copy = map.copy()
-    buffer = 12 #radius of the filling
+    buffer = 10 #radius of the filling
 
     for i in range(360):
         for j in range(360):
@@ -162,12 +162,12 @@ if mode == 'planner':
     #plt.imshow(map)
     #plt.show()
 
-    #update the map
-    # display.setColor(int(0xFFFFFF))
-    # for i in range(360):
-    #     for j in range(360):
-    #         if map[i][j] == 1:
-    #             display.drawPixel(i, j)
+    #show the map with the buffer zones
+    display.setColor(int(0xFFFFFF))
+    for i in range(360):
+        for j in range(360):
+            if map[i][j] == 1:
+                display.drawPixel(i, j)
 
     # Part 2.3 continuation: Call path_planner
     waypoints = path_planner(map, start, end)
@@ -330,101 +330,72 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vL *= 0.75
             vR *= 0.75
     else: # not manual mode
-        # pose_x = gps.getValues()[0]
-        # pose_y = gps.getValues()[1]
-        pose_theta = (pose_theta + np.pi/2) #np.arctan2(compass.getValues()[0], compass.getValues()[1])
+        pose_theta += math.pi/2 
         if pose_theta >= 2*math.pi: pose_theta -= 2*math.pi
         if pose_theta <= 0:         pose_theta += 2*math.pi
-        # if pose_theta >=  math.pi: pose_theta -= 2*math.pi
-        # if pose_theta <= -math.pi: pose_theta += 2*math.pi
+
+        offset = 0.09
+        x_offset = math.cos(pose_theta)*offset
+        y_offset = math.cos(pose_theta)*offset
+        x = pose_x + x_offset
+        y = pose_y + y_offset
 
         fov = math.pi / 8
-        close_enough = 0.15
+        close_enough = 0.08
 
+        waypoint_dist_x = waypoints[index][0] - x
+        waypoint_dist_y = waypoints[index][1] - y
+        waypoint_dist  = math.sqrt(waypoint_dist_x**2 + waypoint_dist_y**2)
+        waypoint_theta = math.atan(waypoint_dist_y / waypoint_dist_x) + math.pi
 
-        waypoint_dist_x = waypoints[index][0] - pose_x
-        waypoint_dist_y = waypoints[index][1] - pose_y
-        waypoint_dist = math.sqrt(waypoint_dist_x**2 + waypoint_dist_y**2)
-        waypoint_theta = math.atan(waypoint_dist_y / waypoint_dist_x) + math.pi #WRONG
-
-        if pose_x < waypoints[index][0]:
+        if x < waypoints[index][0]:
             waypoint_theta -= math.pi
 
         if waypoint_theta >= 2*math.pi: waypoint_theta -= 2*math.pi
         if waypoint_theta <= 0:         waypoint_theta += 2*math.pi
 
-        #if waypoint_dist_x < 0:
-        #    waypoint_theta = waypoint_theta - math.pi/2
-
         angle_error = pose_theta - waypoint_theta
         if angle_error >=  math.pi: angle_error -= 2*math.pi
         if angle_error <= -math.pi: angle_error += 2*math.pi
-        # if angle_error >=  math.pi: angle_error -= 2*math.pi
-        # if angle_error <= -math.pi: angle_error += 2*math.pi
 
         if (close_enough > waypoint_dist):
             index = index + 1
             print("Got to waypoint ", index)
             if index >= len(waypoints): index = 0
 
-
-        print("X: %.3f Z: %.3f Theta: %.3f" % (pose_x, pose_y, pose_theta))
-        print("waypoint_x: %.3f waypoint_z: %.3f index: %.0f" % (waypoints[index][0], waypoints[index][1], index))
-        print("waypoint_dist: %.3f waypoint_theta: %.3f angle_error: %.3f " % (waypoint_dist, waypoint_theta, angle_error))
-        
-
-        ##MOVEMENT
-        #Full speed
-        max = MAX_SPEED / 5
+        #Full speed ahead
+        max = MAX_SPEED / 3
         if (abs(angle_error) <= fov):
             vL = max
             vR = max
-            print("State 1")
+            state = 1
 
-        #Angle slightly
-        elif angle_error < 0 and angle_error > fov * -2:
-            vL = max / 2
-            vR = max
-            print("State 2")
-        elif angle_error > 0 and angle_error < fov * 2:
-            vL = max
-            vR = max / 2
-            print("State 3")
+        #Go backwards
+        elif abs(angle_error) > 3:
+            vL = -max
+            vR = -max
+            state = 2
 
         #Angle sharply
         elif angle_error < 0:
             vL = -max
             vR = max
-            print("State 4")
+            state = 3
         elif angle_error > 0:
             vL = max
             vR = -max
-            print("State 5")
+            state = 4
 
         #Be confused
         else:
             vL = 0
             vR = 0
-            print("State 6")
+            state = -1
 
-            
-        #vL = -MAX_SPEED
-        #vR = MAX_SPEED
-        
-        # #STEP 1: Calculate the error
-        # rho = 0
-        # alpha = 0
-
-        # #STEP 2: Controller
-        # dX = 0
-        # dTheta = 0
-
-        # #STEP 3: Compute wheelspeeds
-        # vL = 0
-        # vR = 0
-
-        # Normalize wheelspeed
-        # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
+        # print("X: %.3f Y: %.3f Theta: %.3f" % (x, y, pose_theta))
+        # print("Xoff: %.3f Yoff: %.3f State: %.3f" % (x_offset, y_offset, state))
+        # print("waypoint_x: %.3f waypoint_z: %.3f index: %.0f" % (waypoints[index][0], waypoints[index][1], index))
+        # print("waypoint_dist: %.3f waypoint_theta: %.3f angle_error: %.3f " % (waypoint_dist, waypoint_theta, angle_error))
 
 
     # Odometry code. Don't change vL or vR speeds after this line.
@@ -432,8 +403,6 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_x += (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.cos(pose_theta)
     pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
     pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
-
-    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
     # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
