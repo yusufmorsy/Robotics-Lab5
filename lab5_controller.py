@@ -340,7 +340,7 @@ while robot.step(timestep) != -1 and mode != 'planner':
         x = pose_x + x_offset
         y = pose_y + y_offset
 
-        fov = math.pi / 8
+        fov = math.pi / 12
         close_enough = 0.08
 
         waypoint_dist_x = waypoints[index][0] - x
@@ -359,31 +359,30 @@ while robot.step(timestep) != -1 and mode != 'planner':
         if angle_error <= -math.pi: angle_error += 2*math.pi
 
         if (close_enough > waypoint_dist):
-            index = index + 1
-            print("Got to waypoint ", index)
+            index += 1
             if index >= len(waypoints): index = 0
 
         #Full speed ahead
-        max = MAX_SPEED / 3
+        max_speed = MAX_SPEED / 3
         if (abs(angle_error) <= fov):
-            vL = max
-            vR = max
+            vL = max_speed
+            vR = max_speed
             state = 1
 
         #Go backwards
         elif abs(angle_error) > 3:
-            vL = -max
-            vR = -max
+            vL = -max_speed / 4
+            vR = -max_speed / 4
             state = 2
 
         #Angle sharply
         elif angle_error < 0:
-            vL = -max
-            vR = max
+            vL = -max_speed / 2
+            vR =  max_speed / 2
             state = 3
         elif angle_error > 0:
-            vL = max
-            vR = -max
+            vL =  max_speed / 2
+            vR = -max_speed / 2
             state = 4
 
         #Be confused
@@ -392,10 +391,10 @@ while robot.step(timestep) != -1 and mode != 'planner':
             vR = 0
             state = -1
 
-        # print("X: %.3f Y: %.3f Theta: %.3f" % (x, y, pose_theta))
-        # print("Xoff: %.3f Yoff: %.3f State: %.3f" % (x_offset, y_offset, state))
-        # print("waypoint_x: %.3f waypoint_z: %.3f index: %.0f" % (waypoints[index][0], waypoints[index][1], index))
-        # print("waypoint_dist: %.3f waypoint_theta: %.3f angle_error: %.3f " % (waypoint_dist, waypoint_theta, angle_error))
+        print("X: %.3f Y: %.3f Theta: %.3f" % (x, y, pose_theta))
+        print("Xoff: %.3f Yoff: %.3f State: %.3f" % (x_offset, y_offset, state))
+        print("waypoint_x: %.3f waypoint_z: %.3f index: %.0f" % (waypoints[index][0], waypoints[index][1], index))
+        print("waypoint_dist: %.3f waypoint_theta: %.3f angle_error: %.3f " % (waypoint_dist, waypoint_theta, angle_error))
 
 
     # Odometry code. Don't change vL or vR speeds after this line.
