@@ -85,10 +85,34 @@ lidar_offsets = lidar_offsets[83:len(lidar_offsets)-83] # Only keep lidar readin
 # Set the mode here. Please change to 'autonomous' before submission
 #mode = 'manual' # Part 1.1: manual mode
 #mode = 'planner'
-mode = 'autonomous'
-#mode = 'picknplace'
+#mode = 'autonomous'
+mode = 'picknplace'
 
+# Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
+def path_planner(map, start, end):
+    '''
+    :param map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
+    :param start: A tuple of indices representing the start cell in the map
+    :param end: A tuple of indices representing the end cell in the map
+    :return: A list of tuples as a path from the given start to the given end in the given maze
+    '''
 
+    queue = collections.deque([[start]])
+    visited = {start}
+
+    while queue:
+        path = queue.popleft()
+        x, y = path[-1]
+        if (x == end[0] and y == end[1]):
+            return path
+        for xx, yy in ((x+1,y), (x-1,y), (x,y+1), (x,y-1), (x+1,y+1), (x-1,y-1), (x-1,y+1), (x+1,y-1)):
+            if (0 <= xx < 360 and 0 <= yy < 360 and map[xx][yy] != 1 and (xx, yy) not in visited):
+                queue.append(path + [(xx, yy)])
+                visited.add((xx, yy))
+
+    # return nothing if the while loop fails to find
+    waypoints = []
+    return waypoints
 
 ###################
 #
@@ -100,39 +124,13 @@ if mode == 'planner':
     start_w = (-8.46, -4.88) # (Pose_X, Pose_Y) in meters
     end_w   = (-1, -10) # (Pose_X, Pose_Y) in meters
 
-    # Convert the start_w and end_w from the webots coordinate frame into the map frame'
+    # Convert the start_w and end_w from the webots coordinate frame into the map frame
     start_x = math.floor(359*(1+start_w[0]/12))
     start_y = math.floor(359*( -start_w[1]/12))
     end_x   = math.floor(359*(1+end_w[0]/12))
     end_y   = math.floor(359*( -end_w[1]/12))
     start = (start_x, start_y) # (x, y) in 360x360 map
     end   = (end_x  , end_y  ) # (x, y) in 360x360 map
-
-    # Part 2.3: Implement A* or Dijkstra's Algorithm to find a path
-    def path_planner(map, start, end):
-        '''
-        :param map: A 2D numpy array of size 360x360 representing the world's cspace with 0 as free space and 1 as obstacle
-        :param start: A tuple of indices representing the start cell in the map
-        :param end: A tuple of indices representing the end cell in the map
-        :return: A list of tuples as a path from the given start to the given end in the given maze
-        '''
-
-        queue = collections.deque([[start]])
-        visited = {start}
-
-        while queue:
-            path = queue.popleft()
-            x, y = path[-1]
-            if (x == end[0] and y == end[1]):
-                return path
-            for xx, yy in ((x+1,y), (x-1,y), (x,y+1), (x,y-1), (x+1,y+1), (x-1,y-1), (x-1,y+1), (x+1,y-1)):
-                if (0 <= xx < 360 and 0 <= yy < 360 and map[xx][yy] != 1 and (xx, yy) not in visited):
-                    queue.append(path + [(xx, yy)])
-                    visited.add((xx, yy))
-
-        # return nothing if the while loop fails to find
-        waypoints = []
-        return waypoints
 
     # Part 2.1: Load map (map.npy) from disk and visualize it
     map = np.load("map.npy")
@@ -150,7 +148,7 @@ if mode == 'planner':
 
     # Part 2.2: Compute an approximation of the “configuration space”
     copy = map.copy()
-    buffer = 8 #radius of the filling
+    buffer = 10 #radius of the filling
 
     for i in range(360):
         for j in range(360):
@@ -162,12 +160,12 @@ if mode == 'planner':
     #plt.imshow(map)
     #plt.show()
 
-    #update the map
-    # display.setColor(int(0xFFFFFF))
-    # for i in range(360):
-    #     for j in range(360):
-    #         if map[i][j] == 1:
-    #             display.drawPixel(i, j)
+    #show the map with the buffer zones
+    display.setColor(int(0xFFFFFF))
+    for i in range(360):
+        for j in range(360):
+            if map[i][j] == 1:
+                display.drawPixel(i, j)
 
     # Part 2.3 continuation: Call path_planner
     waypoints = path_planner(map, start, end)
@@ -195,6 +193,7 @@ if mode == 'planner':
 map = np.zeros(shape=[360,360])
 waypoints = []
 
+index = 0
 if mode == 'autonomous':
     # Part 3.1: Load path from disk and visualize it
     waypoints = np.load("path.npy")
@@ -211,9 +210,50 @@ if mode == 'picknplace':
     # Part 4: Use the function calls from lab5_joints using the comments provided there
     ## use path_planning to generate paths
     ## do not change start_ws and end_ws below
-    start_ws = [(3.7, 5.7)]
-    end_ws = [(10.0, 9.3)]
-    pass
+    start_ws = [(-8.46, -4.88)]
+    end_ws = [(-1, -10)]
+    
+    # Convert the start_ws and end_ws from the webots coordinate frame into the map frame
+    start_w = start_ws[0]
+    end_w = end_ws[0]
+    start_x = math.floor(359*(1+start_w[0]/12))
+    start_y = math.floor(359*( -start_w[1]/12))
+    end_x   = math.floor(359*(1+end_w[0]/12))
+    end_y   = math.floor(359*( -end_w[1]/12))
+    start = (start_x, start_y) # (x, y) in 360x360 map
+    end   = (end_x  , end_y  ) # (x, y) in 360x360 map
+
+    #plan the path
+    map = np.load("map.npy")
+    copy = map.copy()
+    buffer = 10 #radius of the filling
+
+    for i in range(360):
+        for j in range(360):
+            if copy[i][j] == 1:
+                for k in range(2*buffer):
+                    for l in range(2*buffer):
+                        if (i + k - buffer >= 0 and j + l - buffer >= 0 and i + k - buffer < 360 and j + l - buffer < 360):
+                            map[i + k - buffer][j + l - buffer] = 1
+    waypoints = path_planner(map, start, end)
+
+    #visualize the path
+    display.setColor(int(0xFF8800))
+    for i in range(len(waypoints)):
+        x = waypoints[i][0]
+        y = waypoints[i][1]
+        display.drawPixel(x, y)
+        waypoints[i] = (-12*(1-(x/360)), -12*(y/360))
+
+############################
+def closeGrip():
+    robot.getDevice("gripper_right_finger_joint").setPosition(0.0)
+    robot.getDevice("gripper_left_finger_joint").setPosition(0.0) 
+
+def openGrip():
+    robot.getDevice("gripper_right_finger_joint").setPosition(0.045)
+    robot.getDevice("gripper_left_finger_joint").setPosition(0.045)
+############################
 
 while robot.step(timestep) != -1 and mode != 'planner':
 
@@ -286,6 +326,9 @@ while robot.step(timestep) != -1 and mode != 'planner':
     # Controller
     #
     ###################
+    if mode == 'picknplace':
+        openGrip()
+
     if mode == 'manual':
         key = keyboard.getKey()
         while(keyboard.getKey() != -1): pass
@@ -328,57 +371,72 @@ while robot.step(timestep) != -1 and mode != 'planner':
         else: # slow down
             vL *= 0.75
             vR *= 0.75
-    else:  # non-manual modes
-        if mode == 'autonomous':
-            # Path Following: Use the IK-based Feedback Controller
-            if state < len(waypoints):
-                # Get current target waypoint (waypoints are in world coordinates, in meters)
-                goal = waypoints[state]
-                goal_x, goal_y = goal
+    else: # not manual mode
+        pose_theta += math.pi/2 
+        if pose_theta >= 2*math.pi: pose_theta -= 2*math.pi
+        if pose_theta <= 0:         pose_theta += 2*math.pi
 
-                # Compute error between current pose and goal
-                dx = goal_x - pose_x
-                dy = goal_y - pose_y
-                rho = math.sqrt(dx**2 + dy**2)  # Distance error
+        offset = 0.09
+        x_offset = math.cos(pose_theta)*offset
+        y_offset = math.cos(pose_theta)*offset
+        x = pose_x + x_offset
+        y = pose_y + y_offset
 
-                # Compute the angle from the robot to the waypoint
-                goal_angle = math.atan2(dy, dx)
-                # Compute the heading error (normalize between -pi and pi)
-                alpha = goal_angle - pose_theta
-                alpha = (alpha + math.pi) % (2*math.pi) - math.pi
+        fov = math.pi / 12
+        close_enough = 0.08
 
-                # If the robot is close enough to the current waypoint, go to the next one.
-                if rho < 0.2:  # threshold in meters; adjust as needed
-                    state += 1
-                    # Optionally, you could slow down or stop the robot briefly here.
-                else:
-                    # Controller gains (tuning these gains will affect responsiveness and smoothness)
-                    k_rho = 1.0
-                    k_alpha = 2.0
+        waypoint_dist_x = waypoints[index][0] - x
+        waypoint_dist_y = waypoints[index][1] - y
+        waypoint_dist  = math.sqrt(waypoint_dist_x**2 + waypoint_dist_y**2)
+        waypoint_theta = math.atan(waypoint_dist_y / waypoint_dist_x) + math.pi
 
-                    # Compute the desired linear and angular velocities
-                    v = k_rho * rho
-                    omega = k_alpha * alpha
+        if x < waypoints[index][0]:
+            waypoint_theta -= math.pi
 
-                    # Convert from (v, omega) to individual wheel speeds.
-                    # Note: When vL and vR are set to MAX_SPEED, the robot moves at MAX_SPEED_MS.
-                    vL = (v - (AXLE_LENGTH/2.0) * omega) * (MAX_SPEED / MAX_SPEED_MS)
-                    vR = (v + (AXLE_LENGTH/2.0) * omega) * (MAX_SPEED / MAX_SPEED_MS)
+        if waypoint_theta >= 2*math.pi: waypoint_theta -= 2*math.pi
+        if waypoint_theta <= 0:         waypoint_theta += 2*math.pi
 
-                    # Saturate wheel speeds to be within [-MAX_SPEED, MAX_SPEED]
-                    vL = max(min(vL, MAX_SPEED), -MAX_SPEED)
-                    vR = max(min(vR, MAX_SPEED), -MAX_SPEED)
-            else:
-                # If all waypoints have been reached, stop the robot.
-                vL = 0
-                vR = 0
+        angle_error = pose_theta - waypoint_theta
+        if angle_error >=  math.pi: angle_error -= 2*math.pi
+        if angle_error <= -math.pi: angle_error += 2*math.pi
 
-        elif mode == 'picknplace':
-            # Part 4: Implement pick and place logic if needed.
-            pass
+        if (close_enough > waypoint_dist):
+            index += 1
+            if index >= len(waypoints): index = 0
 
-        # Normalize wheelspeed
-        # (Keep the wheel speeds a bit less than the actual platform MAX_SPEED to minimize jerk)
+        #Full speed ahead
+        max_speed = MAX_SPEED / 3
+        if (abs(angle_error) <= fov):
+            vL = max_speed
+            vR = max_speed
+            state = 1
+
+        #Go backwards
+        elif abs(angle_error) > 3:
+            vL = -max_speed / 4
+            vR = -max_speed / 4
+            state = 2
+
+        #Angle sharply
+        elif angle_error < 0:
+            vL = -max_speed / 2
+            vR =  max_speed / 2
+            state = 3
+        elif angle_error > 0:
+            vL =  max_speed / 2
+            vR = -max_speed / 2
+            state = 4
+
+        #Be confused
+        else:
+            vL = 0
+            vR = 0
+            state = -1
+
+        # print("X: %.3f Y: %.3f Theta: %.3f" % (x, y, pose_theta))
+        # print("Xoff: %.3f Yoff: %.3f State: %.3f" % (x_offset, y_offset, state))
+        # print("waypoint_x: %.3f waypoint_z: %.3f index: %.0f" % (waypoints[index][0], waypoints[index][1], index))
+        # print("waypoint_dist: %.3f waypoint_theta: %.3f angle_error: %.3f " % (waypoint_dist, waypoint_theta, angle_error))
 
 
     # Odometry code. Don't change vL or vR speeds after this line.
@@ -386,8 +444,6 @@ while robot.step(timestep) != -1 and mode != 'planner':
     pose_x += (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.cos(pose_theta)
     pose_y -= (vL+vR)/2/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0*math.sin(pose_theta)
     pose_theta += (vR-vL)/AXLE_LENGTH/MAX_SPEED*MAX_SPEED_MS*timestep/1000.0
-
-    # print("X: %f Z: %f Theta: %f" % (pose_x, pose_y, pose_theta))
 
     # Actuator commands
     robot_parts[MOTOR_LEFT].setVelocity(vL)
